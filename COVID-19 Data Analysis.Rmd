@@ -1,0 +1,120 @@
+---
+title: "Final Project 2: Reproducible Report on COVID19 Data"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r lib, include=FALSE}
+library(tidyverse)
+library(lubridate)
+```
+
+## Data Gathering
+
+The data in this analysis is from github COVID-19 Data Repository by the Center for Systems Science and Engineering (CSSE) at Johns Hopkins University  that contains publicly available data about COVID-19. In this particular analysis, we will focus on time series data for global cases and deaths and analyze new cases and new deaths per day.
+
+The code below will get data from github repository:
+
+```{r data}
+url_in <-
+  "https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_time_series/"
+file_names <- c(
+  "time_series_covid19_confirmed_global.csv",
+  "time_series_covid19_deaths_global.csv"
+)
+urls <- str_c(url_in, file_names)
+
+global_cases <- read.csv(urls[1], check.names = FALSE, na.strings = c("", "NA"))
+
+global_deaths <- read.csv(urls[2], check.names = FALSE, na.strings = c("", "NA"))
+```
+
+## Data Transformation
+
+I would like to start the analysis by looking at the number of total cases and deaths per day globally. The code below summarizes the data per day:
+```{r data_1}
+
+cases_per_day <- global_cases %>%
+  pivot_longer(
+    cols = -c('Province/State', 'Country/Region', Lat, Long),
+    names_to = "date",
+    values_to = "cases"
+  ) %>%
+  group_by(date) %>%
+  summarise(cases = sum(cases)) %>%
+  mutate(date = mdy(date))
+
+deaths_per_day <- global_deaths %>%
+  pivot_longer(
+    cols = -c('Province/State', 'Country/Region', Lat, Long),
+    names_to = "date",
+    values_to = "deaths"
+  ) %>%
+  group_by(date) %>%
+  summarise(deaths = sum(deaths)) %>%
+  mutate(date = mdy(date))
+
+head(cases_per_day)
+head(deaths_per_day)
+```
+
+Because the number of cases and deaths are cumulative per day, In order to get values of new cases and deaths, I utilized the use of *lag* function to get data on previous day and subtract to current. The code below joins the data to make a data frame with total cases and deaths per day with mutated new columns *new_cases* and *new_deaths*:
+``` {r data_2}
+per_day <- cases_per_day %>%
+  full_join(deaths_per_day) %>%
+  arrange(date) %>%
+  mutate(new_cases = cases - lag(cases, default = first(cases)),
+         new_deaths = deaths - lag(deaths, default = first(deaths)))
+
+head(per_day)
+```
+
+## Data Visalization
+
+Below plots shows global new cases and new deaths per day:
+
+```{r plot1}
+per_day %>% ggplot(aes(x = date, y = new_cases)) +
+            geom_bar(stat = "identity", color = "indianred2") +
+            ggtitle("COVID-19 Daily New Cases") + 
+            theme(plot.title = element_text(hjust = 0.5))
+```
+
+```{r plot2}
+per_day %>% ggplot(aes(x = date, y = new_deaths)) +
+            geom_bar(stat = "identity", color = "grey56") +
+            ggtitle("COVID-19 Daily New Deaths") + 
+            theme(plot.title = element_text(hjust = 0.5))
+```
+
+## Data Modelling
+
+The scatter plot below shows the new cases per day a X Axis and new deaths per day as Y axis:
+```{r plot3}
+per_day %>% ggplot() +
+            geom_point(aes(x = new_cases, y = new_deaths), color = "midnightblue")
+```
+
+A linear model is used to determine if there is a linear relationship between new cases and new deaths per day. Also, It is clearly seen in chart that there is an obvious outlier and so I removed it in the dataset. The outlier is the case where we had approximately 1.5 Million cases in a single day. 
+
+```{r plot4}
+per_day1 <- per_day %>% filter(new_cases < 1000000)
+lm = lm(new_deaths ~ new_cases, data = per_day1)  
+per_day1$pred = predict(lm)
+per_day1 %>%
+  ggplot()+
+  geom_point(aes(x = new_cases, y = new_deaths), color = "slateblue") +
+  geom_line(aes(x = new_cases, y = pred), color = "tomato1")
+
+summary(lm)
+```
+
+## Conclusion and Bias
+In this analysis we saw the new cases and deaths per day globally. By plotting also new cases vs new deaths and applying a linear model we saw that there is a positive correlation between them. As the new cases increases, the new deaths increases also.
+
+However, there are other factors not included in this analysis and one example is vaccination rates. I believe that if we add vaccination rates as a factor, the resulting model will change. We can also do this to determine the effectivity of vaccinations that even new cases arise, there should be less deaths that will be recorded if vaccines are effective. I also wants to consider in the future to consider deaths on leading days and not use the same day death data. We all know that COVID-19 does not result to death once it is detected but will take few or more days to lead to death.
+
+
